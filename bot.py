@@ -1,6 +1,5 @@
 # bot.py (Частина 1)
 
-```python
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -130,7 +129,7 @@ async def talk(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "talk_cobain": "🎸 Курт Кобейн",
             "talk_hawking": "🌌 Стівен Гокінг",
             "talk_nietzsche": "📚 Фрідріх Ніцше",
-            "talk_queen": "🎤 Фредді Мерк'юрі",
+            "talk_queen": "👑 Королева Єлизавета II",
             "talk_tolkien": "🧙 Джон Рональд Руел Толкін"
         }
     )
@@ -533,15 +532,10 @@ app.add_handler(
 # ===========================
 
 app.add_handler(
-
     CallbackQueryHandler(
-
         talk_callback,
-
-        pattern="^talk_"
-
+        pattern="^talk_(cobain|hawking|nietzsche|queen|tolkien)$"
     )
-
 )
 
 app.add_handler(
