@@ -1,4 +1,4 @@
-# bot.py (Частина 1)
+
 
 from telegram import Update
 from telegram.ext import (
