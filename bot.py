@@ -1,26 +1,9 @@
-
-
 from telegram import Update
-from telegram.ext import (
-    ApplicationBuilder,
-    CallbackQueryHandler,
-    CommandHandler,
-    ContextTypes,
-    MessageHandler,
-    filters
-)
+from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 import credentials
 from gpt import ChatGptService
-from util import (
-    load_message,
-    load_prompt,
-    send_text,
-    send_image,
-    send_text_buttons,
-    show_main_menu,
-)
-
+from util import load_message, load_prompt, send_text, send_image, send_text_buttons, show_main_menu
 chat_gpt = ChatGptService(credentials.ChatGPT_TOKEN)
 
 # ===========================
@@ -39,7 +22,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context,
         load_message("main")
     )
-
     await show_main_menu(
         update,
         context,
@@ -48,7 +30,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "random": "Дізнатися випадковий цікавий факт 🧠",
             "gpt": "Задати питання ChatGPT 🤖",
             "talk": "Поговорити з відомою особистістю 👤",
-            "quiz": "Взяти участь у квізі ❓"
+            "quiz": "Взяти участь у квізі ❓",
+            "translator": "Перекладач 🌍",
+            "trainer": "Словниковий тренажер 📚"
         }
     )
 
@@ -240,6 +224,116 @@ async def quiz_callback(update: Update, context):
 
     await send_text(update, context, question)
 
+# ===========================
+# TRANSLATOR
+# ===========================
+
+LANGUAGES = {
+    "translate_en": "англійську",
+    "translate_de": "німецьку",
+    "translate_fr": "французьку",
+    "translate_es": "іспанську"
+}
+
+
+async def translator(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    context.user_data["mode"] = "TRANSLATOR_SELECT"
+
+    await send_image(
+        update,
+        context,
+        "gpt"
+    )
+
+    await send_text_buttons(
+        update,
+        context,
+        "🌍 Оберіть мову перекладу:",
+        buttons={
+            "translate_en": "🇬🇧 Англійська",
+            "translate_de": "🇩🇪 Німецька",
+            "translate_fr": "🇫🇷 Французька",
+            "translate_es": "🇪🇸 Іспанська"
+        }
+    )
+
+async def translator_callback(update: Update, context):
+
+    query = update.callback_query.data
+
+    await update.callback_query.answer()
+
+    if query not in LANGUAGES:
+        return
+
+    context.user_data["mode"] = "TRANSLATOR"
+
+    context.user_data["translate_language"] = LANGUAGES[query]
+
+    await send_text(
+        update,
+        context,
+        "✍️ Введіть текст для перекладу."
+    )
+
+# ===========================
+# TRAINER
+# ===========================
+
+async def trainer(update: Update,
+                  context: ContextTypes.DEFAULT_TYPE):
+
+    context.user_data["mode"] = "TRAINER"
+
+    # Отправляем изображение
+    await send_image(
+        update,
+        context,
+        "trainer"
+    )
+
+    prompt = """
+Придумай одне англійське слово.
+
+Формат:
+
+Слово:
+
+Переклад:
+
+Приклад:
+"""
+
+    response = await chat_gpt.send_question(
+        prompt,
+        ""
+    )
+
+    await send_text_buttons(
+        update,
+        context,
+        response,
+        buttons={
+            "trainer_more": "📚 Ще слово",
+            "trainer_finish": "🏠 Закінчити"
+        }
+    )
+
+async def trainer_callback(update: Update,
+                           context):
+
+    query = update.callback_query.data
+
+    await update.callback_query.answer()
+
+    if query == "trainer_more":
+
+        await trainer(update, context)
+
+    elif query == "trainer_finish":
+
+        await start(update, context)
 
 # ===========================
 # TEXT HANDLER
@@ -293,6 +387,34 @@ async def plain_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     # ---------------- QUIZ ----------------
+    # ---------------- TRANSLATOR ----------------
+
+    if mode == "TRANSLATOR":
+        prompt = f"""
+    Ти професійний перекладач.
+
+    Переклади текст на
+    {context.user_data["translate_language"]}.
+
+    Відповідай лише перекладом.
+    """
+
+        response = await chat_gpt.send_question(
+            prompt,
+            text
+        )
+
+        await send_text_buttons(
+            update,
+            context,
+            response,
+            buttons={
+                "translator_again": "🔄 Перекласти ще",
+                "translator_finish": "🏠 Закінчити"
+            }
+        )
+
+        return
 
     if mode == "QUIZ":
 
@@ -424,161 +546,86 @@ async def quiz_finish_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
         await start(update, context)
 
+async def translator_finish_callback(update: Update, context):
+
+    query = update.callback_query.data
+
+    await update.callback_query.answer()
+
+    if query == "translator_again":
+
+        context.user_data["mode"] = "TRANSLATOR"
+
+        await send_text(
+            update,
+            context,
+            "✍️ Введіть новий текст."
+        )
+
+    else:
+
+        await start(update, context)
+
 
 # ===========================
 # APPLICATION
 # ===========================
 
-app = ApplicationBuilder().token(
-    credentials.BOT_TOKEN
-).build()
+app = ApplicationBuilder().token(credentials.BOT_TOKEN).build()
 
 
 # ===========================
 # COMMANDS
 # ===========================
 
-app.add_handler(
-    CommandHandler(
-        "start",
-        start
-    )
-)
 
-app.add_handler(
-    CommandHandler(
-        "random",
-        random
-    )
-)
-
-app.add_handler(
-    CommandHandler(
-        "gpt",
-        gpt
-    )
-)
-
-app.add_handler(
-    CommandHandler(
-        "talk",
-        talk
-    )
-)
-
-app.add_handler(
-    CommandHandler(
-        "quiz",
-        quiz
-    )
-)
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("random", random))
+app.add_handler(CommandHandler("gpt", gpt))
+app.add_handler(CommandHandler("talk", talk))
+app.add_handler(CommandHandler("quiz", quiz))
+app.add_handler(CommandHandler("translator", translator))
+app.add_handler(CommandHandler("trainer", trainer))
 
 
 # ===========================
 # TEXT
 # ===========================
 
-app.add_handler(
-
-    MessageHandler(
-
-        filters.TEXT
-        &
-        ~filters.COMMAND,
-
-        plain_text_handler
-
-    )
-
-)
+app.add_handler(MessageHandler(filters.TEXT &~filters.COMMAND, plain_text_handler))
 
 
 # ===========================
 # CALLBACK RANDOM
 # ===========================
 
-app.add_handler(
-
-    CallbackQueryHandler(
-
-        random_callback,
-
-        pattern="^random_"
-
-    )
-
-)
+app.add_handler(CallbackQueryHandler(random_callback, pattern="^random_"))
 
 
 # ===========================
 # CALLBACK GPT
 # ===========================
 
-app.add_handler(
-
-    CallbackQueryHandler(
-
-        gpt_callback,
-
-        pattern="^gpt_"
-
-    )
-
-)
+app.add_handler(CallbackQueryHandler(gpt_callback, pattern="^gpt_"))
 
 
 # ===========================
 # CALLBACK TALK
 # ===========================
 
-app.add_handler(
-    CallbackQueryHandler(
-        talk_callback,
-        pattern="^talk_(cobain|hawking|nietzsche|queen|tolkien)$"
-    )
-)
-
-app.add_handler(
-
-    CallbackQueryHandler(
-
-        talk_finish_callback,
-
-        pattern="^talk_finish$"
-
-    )
-
-)
+app.add_handler(CallbackQueryHandler(talk_callback, pattern="^talk_(cobain|hawking|nietzsche|queen|tolkien)$"))
+app.add_handler(CallbackQueryHandler(talk_finish_callback, pattern="^talk_finish$"))
 
 
 # ===========================
 # CALLBACK QUIZ
 # ===========================
 
-app.add_handler(
-
-    CallbackQueryHandler(
-
-        quiz_callback,
-
-        pattern="^quiz_python|^quiz_history|^quiz_science|^quiz_sport"
-
-    )
-
-)
-
-app.add_handler(
-
-    CallbackQueryHandler(
-
-        quiz_finish_callback,
-
-        pattern="^quiz_again$|^quiz_finish$"
-
-    )
-
-)
-
+app.add_handler(CallbackQueryHandler(quiz_callback, pattern="^quiz_python|^quiz_history|^quiz_science|^quiz_sport"))
+app.add_handler(CallbackQueryHandler(quiz_finish_callback, pattern="^quiz_again$|^quiz_finish$"))
+app.add_handler(CallbackQueryHandler(translator_callback, pattern="^translate_"))
+app.add_handler(CallbackQueryHandler(translator_finish_callback, pattern="^translator_again$|^translator_finish$"))
+app.add_handler(CallbackQueryHandler(trainer_callback, pattern="^trainer_"))
 
 # ===========================
 # RUN
