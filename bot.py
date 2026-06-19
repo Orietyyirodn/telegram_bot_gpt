@@ -286,54 +286,163 @@ async def trainer(update: Update,
 
     context.user_data["mode"] = "TRAINER"
 
-    # Отправляем изображение
-    await send_image(
-        update,
-        context,
-        "trainer"
-    )
+    if "words" not in context.user_data:
+        context.user_data["words"] = []
 
     prompt = """
 Придумай одне англійське слово.
 
-Формат:
+Формат строго:
 
-Слово:
-
-Переклад:
-
-Приклад:
+Слово: ...
+Переклад: ...
+Приклад: ...
 """
 
-    response = await chat_gpt.send_question(
-        prompt,
-        ""
-    )
+    response = await chat_gpt.send_question(prompt, "")
+
+    # ===========================
+    # PARSE RESPONSE
+    # ===========================
+
+    word = ""
+    translation = ""
+    example = ""
+
+    for line in response.split("\n"):
+        line = line.strip()
+
+        if line.startswith("Слово:"):
+            word = line.replace("Слово:", "").strip()
+
+        elif line.startswith("Переклад:"):
+            translation = line.replace("Переклад:", "").strip()
+
+        elif line.startswith("Приклад:"):
+            example = line.replace("Приклад:", "").strip()
+
+    # ===========================
+    # SAVE STRUCTURED WORD
+    # ===========================
+
+    parsed = {
+        "word": word,
+        "translation": translation,
+        "example": example
+    }
+
+    context.user_data["words"].append(parsed)
+
+    # ===========================
+    # SEND TO USER
+    # ===========================
+
+    await send_image(update, context, "trainer")
 
     await send_text_buttons(
         update,
         context,
-        response,
+        f"📚 Нове слово:\n\n"
+        f"🇬🇧 {word}\n"
+        f"🇺🇦 {translation}\n\n"
+        f"💡 {example}",
         buttons={
             "trainer_more": "📚 Ще слово",
+            "trainer_practice": "🧠 Тренуватися",
             "trainer_finish": "🏠 Закінчити"
         }
     )
-
 async def trainer_callback(update: Update,
                            context):
 
     query = update.callback_query.data
-
     await update.callback_query.answer()
 
     if query == "trainer_more":
-
         await trainer(update, context)
 
-    elif query == "trainer_finish":
+    elif query == "trainer_practice":
+        await start_practice(update, context)
 
+    elif query == "trainer_finish":
+        context.user_data.pop("words", None)
         await start(update, context)
+
+async def start_practice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    words = context.user_data.get("words", [])
+
+    if not words:
+        await send_text(update, context, "❌ Немає вивчених слів")
+        return
+
+    context.user_data["mode"] = "PRACTICE"
+    context.user_data["practice_index"] = 0
+    context.user_data["correct"] = 0
+
+    await ask_next_word(update, context)
+
+async def ask_next_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    index = context.user_data["practice_index"]
+    words = context.user_data["words"]
+
+    if index >= len(words):
+
+        correct = context.user_data["correct"]
+        total = len(words)
+
+        await send_text(
+            update,
+            context,
+            f"🏁 Тест завершено!\n\n✅ Результат: {correct}/{total}"
+        )
+
+        context.user_data["mode"] = "TRAINER"
+        return
+
+    current = words[index]
+
+    context.user_data["current_word"] = current
+
+    await send_text(
+        update,
+        context,
+        f"✏️ Переклади слово:\n\n{current['word']}"
+    )
+
+
+async def practice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if context.user_data.get("mode") != "PRACTICE":
+        return
+
+    user_answer = update.message.text
+    current = context.user_data.get("current_word")
+
+    prompt = f"""
+Ти перевіряєш переклад.
+
+Слово: {current['word']}
+Правильний переклад: {current['translation']}
+Відповідь користувача: {user_answer}
+
+Чи правильна відповідь?
+
+Відповідай ТІЛЬКИ:
+YES або NO
+"""
+
+    result = await chat_gpt.send_question(prompt, "")
+
+    is_correct = result.strip().upper().startswith("YES")
+
+    if is_correct:
+        context.user_data["correct"] += 1
+
+    context.user_data["practice_index"] += 1
+
+    await ask_next_word(update, context)
 
 # ===========================
 # TEXT HANDLER
@@ -346,6 +455,9 @@ async def plain_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     text = update.message.text
 
     # ---------------- GPT ----------------
+    if mode == "PRACTICE":
+        await practice_message(update, context)
+        return
 
     if mode == "GPT_WAIT":
 
@@ -385,9 +497,6 @@ async def plain_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
 
         return
-
-    # ---------------- QUIZ ----------------
-    # ---------------- TRANSLATOR ----------------
 
     if mode == "TRANSLATOR":
         prompt = f"""
@@ -592,7 +701,7 @@ app.add_handler(CommandHandler("trainer", trainer))
 # TEXT
 # ===========================
 
-app.add_handler(MessageHandler(filters.TEXT &~filters.COMMAND, plain_text_handler))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, plain_text_handler))
 
 
 # ===========================
